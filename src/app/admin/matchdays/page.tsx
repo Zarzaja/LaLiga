@@ -1,0 +1,232 @@
+"use client";
+
+import { useState, useEffect } from "react";
+import { collection, getDocs, addDoc, doc, updateDoc, query, orderBy } from "firebase/firestore";
+import { db } from "@/lib/firebase";
+
+export const LA_LIGA_TEAMS = [
+  "Alavés", "Athletic Club", "Atlético de Madrid", "Barcelona", "Celta de Vigo",
+  "Espanyol", "Getafe", "Girona", "Las Palmas", "Leganés", 
+  "Mallorca", "Osasuna", "Rayo Vallecano", "Real Betis", "Real Madrid", 
+  "Real Sociedad", "Sevilla", "Valencia", "Valladolid", "Villarreal"
+];
+
+export interface Match {
+  id: string;
+  homeTeam: string;
+  awayTeam: string;
+  kickoffTime: string;
+  status: 'pending' | 'finished';
+  homeGoals: number | null;
+  awayGoals: number | null;
+  officialMvp: string | null;
+  validMvpVotes: string[];
+}
+
+export interface Matchday {
+  id: string;
+  name: string;
+  createdAt: number;
+  matches: Match[];
+}
+
+export default function MatchdaysAdminPage() {
+  const [matchdays, setMatchdays] = useState<Matchday[]>([]);
+  const [loading, setLoading] = useState(true);
+  
+  // State for creating new matchday
+  const [newMatchdayName, setNewMatchdayName] = useState("");
+  const [newMatches, setNewMatches] = useState<Match[]>([
+    { id: "m1", homeTeam: "", awayTeam: "", kickoffTime: "", status: "pending", homeGoals: null, awayGoals: null, officialMvp: null, validMvpVotes: [] },
+    { id: "m2", homeTeam: "", awayTeam: "", kickoffTime: "", status: "pending", homeGoals: null, awayGoals: null, officialMvp: null, validMvpVotes: [] },
+    { id: "m3", homeTeam: "", awayTeam: "", kickoffTime: "", status: "pending", homeGoals: null, awayGoals: null, officialMvp: null, validMvpVotes: [] }
+  ]);
+
+  const fetchMatchdays = async () => {
+    setLoading(true);
+    try {
+      const q = query(collection(db, "matchdays"), orderBy("createdAt", "desc"));
+      const snapshot = await getDocs(q);
+      const data: Matchday[] = [];
+      snapshot.forEach(doc => {
+        data.push({ id: doc.id, ...doc.data() } as Matchday);
+      });
+      setMatchdays(data);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchMatchdays();
+  }, []);
+
+  const handleCreateMatchday = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newMatchdayName) return;
+    
+    // Validate all matches are filled
+    for (const m of newMatches) {
+      if (!m.homeTeam || !m.awayTeam || !m.kickoffTime) {
+        alert("Rellena todos los datos de los 3 partidos.");
+        return;
+      }
+    }
+
+    try {
+      await addDoc(collection(db, "matchdays"), {
+        name: newMatchdayName,
+        createdAt: Date.now(),
+        matches: newMatches
+      });
+      setNewMatchdayName("");
+      setNewMatches([
+        { id: "m1", homeTeam: "", awayTeam: "", kickoffTime: "", status: "pending", homeGoals: null, awayGoals: null, officialMvp: null, validMvpVotes: [] },
+        { id: "m2", homeTeam: "", awayTeam: "", kickoffTime: "", status: "pending", homeGoals: null, awayGoals: null, officialMvp: null, validMvpVotes: [] },
+        { id: "m3", homeTeam: "", awayTeam: "", kickoffTime: "", status: "pending", homeGoals: null, awayGoals: null, officialMvp: null, validMvpVotes: [] }
+      ]);
+      fetchMatchdays();
+    } catch (err) {
+      console.error("Error creating matchday", err);
+    }
+  };
+
+  return (
+    <div className="p-6 md:p-10">
+      <h1 className="text-3xl font-bold mb-8">Gestión de Jornadas</h1>
+      
+      {/* Formulario de Creación */}
+      <section className="bg-slate-800 rounded-xl p-6 border border-slate-700 shadow-xl mb-10">
+        <h2 className="text-xl font-semibold mb-6 border-b border-slate-700 pb-2">Crear Nueva Jornada</h2>
+        
+        <form onSubmit={handleCreateMatchday} className="space-y-8">
+          <div>
+            <label className="block text-sm text-slate-400 mb-2">Nombre de la Jornada</label>
+            <input
+              type="text"
+              required
+              placeholder="Ej. Jornada 1"
+              className="w-full md:w-1/3 rounded-lg bg-slate-900 border border-slate-600 px-4 py-2 text-white focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+              value={newMatchdayName}
+              onChange={e => setNewMatchdayName(e.target.value)}
+            />
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            {newMatches.map((match, index) => (
+              <div key={match.id} className="bg-slate-900 p-4 rounded-lg border border-slate-700">
+                <h3 className="font-medium text-indigo-400 mb-4">Partido {index + 1}</h3>
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-xs text-slate-400 mb-1">Local</label>
+                    <select
+                      required
+                      className="w-full rounded-md bg-slate-800 border border-slate-600 px-3 py-2 text-sm text-white"
+                      value={match.homeTeam}
+                      onChange={e => {
+                        const m = [...newMatches];
+                        m[index].homeTeam = e.target.value;
+                        setNewMatches(m);
+                      }}
+                    >
+                      <option value="">Selecciona equipo</option>
+                      {LA_LIGA_TEAMS.map(t => <option key={t} value={t}>{t}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs text-slate-400 mb-1">Visitante</label>
+                    <select
+                      required
+                      className="w-full rounded-md bg-slate-800 border border-slate-600 px-3 py-2 text-sm text-white"
+                      value={match.awayTeam}
+                      onChange={e => {
+                        const m = [...newMatches];
+                        m[index].awayTeam = e.target.value;
+                        setNewMatches(m);
+                      }}
+                    >
+                      <option value="">Selecciona equipo</option>
+                      {LA_LIGA_TEAMS.map(t => <option key={t} value={t}>{t}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs text-slate-400 mb-1">Fecha y Hora</label>
+                    <input
+                      type="datetime-local"
+                      required
+                      className="w-full rounded-md bg-slate-800 border border-slate-600 px-3 py-2 text-sm text-white"
+                      value={match.kickoffTime}
+                      onChange={e => {
+                        const m = [...newMatches];
+                        m[index].kickoffTime = e.target.value;
+                        setNewMatches(m);
+                      }}
+                    />
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <button
+            type="submit"
+            className="rounded-lg bg-indigo-600 px-6 py-2.5 font-semibold text-white transition-colors hover:bg-indigo-500"
+          >
+            Guardar Jornada
+          </button>
+        </form>
+      </section>
+
+      {/* Listado de Jornadas */}
+      <section>
+        <h2 className="text-xl font-semibold mb-6">Jornadas Existentes</h2>
+        {loading ? (
+          <p className="text-slate-400 animate-pulse">Cargando...</p>
+        ) : matchdays.length === 0 ? (
+          <p className="text-slate-400 italic">No hay jornadas creadas.</p>
+        ) : (
+          <div className="space-y-6">
+            {matchdays.map(md => (
+              <div key={md.id} className="bg-slate-800 rounded-xl p-6 border border-slate-700 shadow-lg">
+                <div className="flex justify-between items-center mb-4">
+                  <h3 className="text-lg font-bold text-white">{md.name}</h3>
+                  <span className="text-xs text-slate-400">Creada el {new Date(md.createdAt).toLocaleDateString()}</span>
+                </div>
+                
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  {md.matches.map((m, i) => (
+                    <div key={m.id} className="bg-slate-900 rounded-lg p-4 border border-slate-700">
+                      <div className="flex justify-between items-center mb-2">
+                        <span className="text-xs font-bold text-slate-400">P{i + 1}</span>
+                        <span className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded-full ${m.status === 'finished' ? 'bg-green-500/20 text-green-400' : 'bg-yellow-500/20 text-yellow-400'}`}>
+                          {m.status === 'finished' ? 'Finalizado' : 'Pendiente'}
+                        </span>
+                      </div>
+                      <p className="font-medium text-sm">{m.homeTeam} vs {m.awayTeam}</p>
+                      <p className="text-xs text-slate-400 mt-1">{new Date(m.kickoffTime).toLocaleString()}</p>
+                      
+                      {m.status === 'finished' && (
+                        <div className="mt-3 pt-3 border-t border-slate-700 text-sm">
+                          <p><span className="text-slate-400">Resultado:</span> {m.homeGoals} - {m.awayGoals}</p>
+                          <p><span className="text-slate-400">MVP:</span> {m.officialMvp}</p>
+                        </div>
+                      )}
+                      
+                      {m.status === 'pending' && (
+                        <button className="mt-4 w-full text-xs bg-slate-700 hover:bg-slate-600 rounded px-3 py-1.5 transition-colors">
+                          Cerrar Partido (Próximamente)
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+    </div>
+  );
+}
