@@ -11,6 +11,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
 
   const links = [
     { name: "Jornadas y Partidos", href: "/admin/matchdays" },
+    { name: "Gestión de Equipos", href: "/admin/teams" },
     { name: "Gestión de Usuarios", href: "/admin/users" },
     { name: "Backup & Restore", href: "/admin/backup" },
   ];

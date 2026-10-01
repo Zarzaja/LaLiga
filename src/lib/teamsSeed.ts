@@ -1,0 +1,22 @@
+export const LA_LIGA_26_27_SEED: string[] = [
+  "Alavés",
+  "Athletic Club",
+  "Atlético de Madrid",
+  "Barcelona",
+  "Celta de Vigo",
+  "Deportivo de La Coruña",
+  "Espanyol",
+  "Getafe",
+  "Girona",
+  "Las Palmas",
+  "Leganés",
+  "Mallorca",
+  "Osasuna",
+  "Rayo Vallecano",
+  "Real Betis",
+  "Real Madrid",
+  "Real Sociedad",
+  "Sevilla",
+  "Valencia",
+  "Villarreal"
+];
