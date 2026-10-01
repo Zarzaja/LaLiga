@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { collection, getDocs, addDoc, doc, updateDoc, query, orderBy } from "firebase/firestore";
 import { db } from "@/lib/firebase";
+import Link from "next/link";
 
 export const LA_LIGA_TEAMS = [
   "Alavés", "Athletic Club", "Atlético de Madrid", "Barcelona", "Celta de Vigo",
@@ -215,9 +216,12 @@ export default function MatchdaysAdminPage() {
                       )}
                       
                       {m.status === 'pending' && (
-                        <button className="mt-4 w-full text-xs bg-slate-700 hover:bg-slate-600 rounded px-3 py-1.5 transition-colors">
-                          Cerrar Partido (Próximamente)
-                        </button>
+                        <Link 
+                          href={`/admin/matchdays/close/${md.id}/${m.id}`}
+                          className="mt-4 block text-center text-xs bg-indigo-600 hover:bg-indigo-500 text-white rounded px-3 py-2 transition-colors font-medium"
+                        >
+                          Cerrar Partido
+                        </Link>
                       )}
                     </div>
                   ))}

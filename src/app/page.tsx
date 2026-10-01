@@ -31,10 +31,16 @@ export default function Home() {
             )}
             <div className="flex w-full gap-4">
               <Link 
+                href="/play" 
+                className="w-full rounded-lg bg-indigo-600 px-4 py-3 text-center font-semibold text-white shadow-lg transition-all hover:bg-indigo-500 hover:shadow-indigo-500/30"
+              >
+                Jugar Jornadas
+              </Link>
+              <Link 
                 href="/profile" 
                 className="w-full rounded-lg bg-slate-700 px-4 py-3 text-center font-semibold text-white transition-colors hover:bg-slate-600"
               >
-                Mi Perfil
+                Perfil
               </Link>
             </div>
             {profile?.isAdmin && (
