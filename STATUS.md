@@ -1,34 +1,34 @@
-# STATUS.md - PORRA LA LIGA (Memoria de Relevo Ultra-Concisa)
+# STATUS.md - PORRA LA LIGA (Memoria Relevo Ultra-Concisa)
 
 ## STACK (3 líneas)
 - Next.js 16 (App Router) + TypeScript + Tailwind CSS v4 + React 19
 - Firebase: Firestore Database + Authentication (proyecto: porras-la-liga)
-- Imágenes: Canvas cliente → WebP 200x200px calidad 0.8 → Base64 en documento Firestore (SIN Storage)
+- Imágenes: Canvas cliente → WebP 200x200px 0.8 → Base64 en Firestore (SIN Storage)
 
 ## ESQUEMA FIRESTORE (8 líneas)
-- users/{uid}: teamName (único), playerName, teamShield (DataURL), isAdmin:bool
-- matchdays/{id}: name (ej."Jornada 1"), createdAt:number, matches:Match[] (3)
-  - Match embebido: id, homeTeam, awayTeam, kickoffTime, status(pending|finished), homeGoals, awayGoals, officialMvp, validMvpVotes:string[]
-- predictions/{userId_matchId}: userId, matchdayId, matchId, homeGoals, awayGoals, mvpVote (lowercase)
-- IDs predicciones = `${uid}_${matchId}`. Admin: email NEXT_PUBLIC_ADMIN_EMAIL o 1er usuario
+- users/{uid}: teamName(único), playerName, teamShield(DataURL), isAdmin:bool
+- matchdays/{id}: name ("Jornada 1"), createdAt, matches:Match[3] embebidos
+  - Match: id, homeTeam, awayTeam, kickoffTime, status(pending|finished), homeGoals, awayGoals, officialMvp, validMvpVotes:string[]
+- predictions/{uid_matchId}: userId, matchdayId, matchId, homeGoals, awayGoals, mvpVote(lowercase), pointsExact, pointsSign, pointsMvp, pointsTotal
+- Admin = NEXT_PUBLIC_ADMIN_EMAIL o primer usuario.
 
 ## CHECKLIST FASES
-[x] Fase 1: Inicialización + Git/Reglas multi-IDE (STATUS.md, AGENTS.md, .cursorrules, GEMINI.md)
-[~] Fase 2: Auth (login/register OK, FALTA recuperar contraseña) + Perfil con escudo WebP (OK)
-[~] Fase 3: Admin Jornadas (OK) + Usuarios (OK) + Backup/Restore (solo users/matchdays, FALTA predictions y resumen previo)
-[~] Fase 4: Predicciones (bloqueo horario OK, guardar OK) + Cierre partido validación MVP checkboxes (OK). FALTA cálculo AUTOMÁTICO de puntos (3pts pleno, 1pt signo, +1pt MVP)
-[ ] Fase 5: Clasificación General (orden pts→plenos→MVPs) + vista por jornadas + diseño pulido
+[x] Fase 1: Init Next/Tailwind + Git/Reglas multi-IDE (AGENTS, .cursorrules, GEMINI, STATUS)
+[x] Fase 2: Auth (login/register/recuperar-contraseña OK) + Perfil + escudo WebP
+[x] Fase 3: Admin (Jornadas, Usuarios OK) · Backup-Restore (users/matchdays/predictions + resumen previo)
+[x] Fase 4: Predicciones (bloqueo horario OK) · Cierre partido (MVP checkboxes OK) · CÁLCULO PUNTOS AUTOMÁTICO: exacto3 / signo1 / mvp+1 en writeBatch
+[x] Fase 5: Leaderboard /clasificación General (orden: pts→plenos→mvps) + Tabs por jornada + Diseño deportivo + enlace Home
 
 ## ÚLTIMO CAMBIO (1 línea)
-Creado .cursorrules + actualizados AGENTS.md/GEMINI.md con reglas multi-IDE completas. Consolidado STATUS.md con avance real.
+Implementado cálculo automático de puntos al cerrar partido, Leaderboard /leaderboard con tabs por jornada, recuperar contraseña y Backup completo predictions + resumen previo.
 
 ## SIGUIENTE PASO EXACTO (1 línea)
-Añadir enlace "Recuperar contraseña" en login (sendPasswordResetEmail) + actualizar backup/restore para incluir colección "predictions" y resumen previo antes de restaurar.
+Comprobar en navegador real la app con Firebase: crear usuario/admin → jornada → predecir → cerrar partido y validar que suma puntos y muestra clasificación. Si falla algo, iterar puliendo bugs. Opcional: logout en Home/Profile.
 
 ## MAPA ARCHIVOS CLAVE
 - src/lib/firebase.ts, src/lib/imageCompression.ts
 - src/context/AuthContext.tsx, src/components/AdminGuard.tsx
-- src/app/page.tsx | src/app/play/page.tsx | src/app/profile/page.tsx
-- src/app/(auth)/login/page.tsx | src/app/(auth)/register/page.tsx
-- src/app/admin/layout.tsx | src/app/admin/matchdays/page.tsx | src/app/admin/users/page.tsx | src/app/admin/backup/page.tsx
-- src/app/admin/matchdays/close/[matchdayId]/[matchId]/page.tsx
+- src/app/page.tsx · src/app/play/page.tsx · src/app/profile/page.tsx · src/app/leaderboard/page.tsx (NUEVO)
+- src/app/(auth)/login/page.tsx (recuperar password), register/page.tsx
+- src/app/admin/layout.tsx · matchdays/page.tsx · users/page.tsx · backup/page.tsx
+- src/app/admin/matchdays/close/[matchdayId]/[matchId]/page.tsx (cálculo pts)

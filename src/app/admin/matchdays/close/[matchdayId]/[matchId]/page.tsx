@@ -1,11 +1,36 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { doc, getDoc, updateDoc, collection, query, where, getDocs } from "firebase/firestore";
+import { doc, getDoc, updateDoc, collection, query, where, getDocs, writeBatch } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { useRouter } from "next/navigation";
 import { use } from "react";
 import { Matchday, Match } from "../../../page";
+
+const computeMatchPoints = (
+  predGoals: { home: number; away: number },
+  realGoals: { home: number; away: number },
+  predMvpLower: string,
+  validMvpVotesLower: string[]
+): { exact: number; sign: number; mvp: number } => {
+  let exact = 0;
+  let sign = 0;
+  let mvp = 0;
+
+  if (predGoals.home === realGoals.home && predGoals.away === realGoals.away) {
+    exact = 3;
+  } else {
+    const predSign = predGoals.home > predGoals.away ? "1" : predGoals.home < predGoals.away ? "2" : "X";
+    const realSign = realGoals.home > realGoals.away ? "1" : realGoals.home < realGoals.away ? "2" : "X";
+    if (predSign === realSign) sign = 1;
+  }
+
+  if (predMvpLower && validMvpVotesLower.includes(predMvpLower)) {
+    mvp = 1;
+  }
+
+  return { exact, sign, mvp };
+};
 
 export default function CloseMatchPage({ params }: { params: Promise<{ matchdayId: string, matchId: string }> }) {
   const router = useRouter();
@@ -89,20 +114,52 @@ export default function CloseMatchPage({ params }: { params: Promise<{ matchdayI
     setSaving(true);
     try {
       const validVotesArray = Object.keys(selectedValidMvps).filter(k => selectedValidMvps[k]);
+      const validVotesLower = validVotesArray.map(v => v.toLowerCase());
+      const realHome = parseInt(homeGoals);
+      const realAway = parseInt(awayGoals);
       
       const newMatches = [...matchday.matches];
       newMatches[matchIndex] = {
         ...newMatches[matchIndex],
         status: "finished",
-        homeGoals: parseInt(homeGoals),
-        awayGoals: parseInt(awayGoals),
+        homeGoals: realHome,
+        awayGoals: realAway,
         officialMvp: officialMvp.trim(),
         validMvpVotes: validVotesArray
       };
 
-      await updateDoc(doc(db, "matchdays", matchday.id), {
+      const batch = writeBatch(db);
+
+      batch.update(doc(db, "matchdays", matchday.id), {
         matches: newMatches
       });
+
+      const q = query(collection(db, "predictions"), where("matchId", "==", matchId));
+      const predSnap = await getDocs(q);
+      let processedCount = 0;
+
+      predSnap.forEach(predDoc => {
+        const d = predDoc.data();
+        const { exact, sign, mvp } = computeMatchPoints(
+          { home: d.homeGoals ?? 0, away: d.awayGoals ?? 0 },
+          { home: realHome, away: realAway },
+          (d.mvpVote || "").toLowerCase(),
+          validVotesLower
+        );
+        const total = exact + sign + mvp;
+        batch.update(predDoc.ref, {
+          pointsExact: exact,
+          pointsSign: sign,
+          pointsMvp: mvp,
+          pointsTotal: total
+        });
+        processedCount++;
+        if (processedCount % 490 === 0) {
+          console.warn("Batch cerca de límite 500; se requiere lote adicional en BD grande");
+        }
+      });
+
+      await batch.commit();
 
       router.push("/admin/matchdays");
     } catch (err) {

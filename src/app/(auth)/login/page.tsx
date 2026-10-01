@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { signInWithEmailAndPassword } from "firebase/auth";
+import { signInWithEmailAndPassword, sendPasswordResetEmail } from "firebase/auth";
 import { auth } from "@/lib/firebase";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
@@ -10,20 +10,47 @@ export default function LoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
+  const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
+  const [resetLoading, setResetLoading] = useState(false);
   const router = useRouter();
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
+    setMessage("");
     setLoading(true);
     try {
       await signInWithEmailAndPassword(auth, email, password);
       router.push("/");
     } catch (err: any) {
-      setError("Credenciales incorrectas o error al iniciar sesión.");
+      const code = err?.code;
+      if (code === "auth/invalid-credential" || code === "auth/user-not-found" || code === "auth/wrong-password") {
+        setError("Email o contraseña incorrectos.");
+      } else {
+        setError("Error al iniciar sesión. Revisa los datos.");
+      }
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleForgotPassword = async (e: React.MouseEvent) => {
+    e.preventDefault();
+    if (!email.trim()) {
+      setError("Introduce tu email arriba y pulsa aquí para recuperar la contraseña.");
+      return;
+    }
+    setResetLoading(true);
+    setError("");
+    setMessage("");
+    try {
+      await sendPasswordResetEmail(auth, email.trim());
+      setMessage(`¡Correo enviado! Revisa tu bandeja de entrada (y spam) de ${email} para restablecer la contraseña.`);
+    } catch (err: any) {
+      setError("No se pudo enviar el correo. Revisa que el email sea correcto.");
+    } finally {
+      setResetLoading(false);
     }
   };
 
@@ -35,6 +62,11 @@ export default function LoginPage() {
         {error && (
           <div className="mb-4 rounded-lg bg-red-500/20 p-3 text-sm text-red-400 border border-red-500/50">
             {error}
+          </div>
+        )}
+        {message && (
+          <div className="mb-4 rounded-lg bg-emerald-500/20 p-3 text-sm text-emerald-400 border border-emerald-500/50">
+            {message}
           </div>
         )}
 
@@ -67,6 +99,17 @@ export default function LoginPage() {
             {loading ? "Entrando..." : "Entrar"}
           </button>
         </form>
+
+        <div className="mt-4 text-center">
+          <button
+            type="button"
+            onClick={handleForgotPassword}
+            disabled={resetLoading}
+            className="text-xs text-indigo-400 hover:text-indigo-300 hover:underline disabled:opacity-50"
+          >
+            {resetLoading ? "Enviando correo..." : "¿Has olvidado la contraseña?"}
+          </button>
+        </div>
 
         <p className="mt-6 text-center text-sm text-slate-400">
           ¿No tienes cuenta?{" "}

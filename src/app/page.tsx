@@ -37,10 +37,18 @@ export default function Home() {
                 Jugar Jornadas
               </Link>
               <Link 
+                href="/leaderboard" 
+                className="w-full rounded-lg bg-emerald-600/90 px-4 py-3 text-center font-semibold text-white shadow-lg transition-all hover:bg-emerald-500 hover:shadow-emerald-500/30"
+              >
+                🏆 Clasificación
+              </Link>
+            </div>
+            <div className="flex w-full gap-4">
+              <Link 
                 href="/profile" 
                 className="w-full rounded-lg bg-slate-700 px-4 py-3 text-center font-semibold text-white transition-colors hover:bg-slate-600"
               >
-                Perfil
+                Mi Perfil
               </Link>
             </div>
             {profile?.isAdmin && (

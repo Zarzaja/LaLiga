@@ -4,33 +4,40 @@ import { useState } from "react";
 import { collection, getDocs, doc, writeBatch } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 
+interface BackupSummary {
+  users: number;
+  matchdays: number;
+  predictions: number;
+}
+
 export default function BackupAdminPage() {
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState({ text: "", type: "" });
   const [fileToImport, setFileToImport] = useState<File | null>(null);
+  const [previewSummary, setPreviewSummary] = useState<BackupSummary | null>(null);
+  const [confirmedRestore, setConfirmedRestore] = useState(false);
+
+  const COLLECTIONS = ["users", "matchdays", "predictions"] as const;
 
   const handleExport = async () => {
     setLoading(true);
     setMessage({ text: "Generando copia de seguridad...", type: "info" });
     try {
       const backupData: any = {
+        exportedAt: new Date().toISOString(),
+        version: 1,
         users: {},
-        matchdays: {}
+        matchdays: {},
+        predictions: {}
       };
 
-      // Export users
-      const usersSnap = await getDocs(collection(db, "users"));
-      usersSnap.forEach(d => {
-        backupData.users[d.id] = d.data();
-      });
+      for (const col of COLLECTIONS) {
+        const snap = await getDocs(collection(db, col));
+        snap.forEach(d => {
+          backupData[col][d.id] = d.data();
+        });
+      }
 
-      // Export matchdays
-      const matchdaysSnap = await getDocs(collection(db, "matchdays"));
-      matchdaysSnap.forEach(d => {
-        backupData.matchdays[d.id] = d.data();
-      });
-
-      // Create JSON file and trigger download
       const jsonStr = JSON.stringify(backupData, null, 2);
       const blob = new Blob([jsonStr], { type: "application/json" });
       const url = URL.createObjectURL(blob);
@@ -42,7 +49,14 @@ export default function BackupAdminPage() {
       a.click();
       
       URL.revokeObjectURL(url);
-      setMessage({ text: "Copia de seguridad descargada con éxito.", type: "success" });
+      const counts = COLLECTIONS.reduce<any>((acc, c) => {
+        acc[c] = Object.keys(backupData[c]).length;
+        return acc;
+      }, {});
+      setMessage({
+        text: `Backup descargado: ${counts.users} usuarios · ${counts.matchdays} jornadas · ${counts.predictions} predicciones.`,
+        type: "success"
+      });
     } catch (err: any) {
       console.error(err);
       setMessage({ text: `Error al exportar: ${err.message}`, type: "error" });
@@ -51,52 +65,64 @@ export default function BackupAdminPage() {
     }
   };
 
+  const handlePreview = async () => {
+    if (!fileToImport) return;
+    setMessage({ text: "", type: "" });
+    try {
+      const text = await fileToImport.text();
+      const backupData = JSON.parse(text);
+      const summary: BackupSummary = {
+        users: backupData.users ? Object.keys(backupData.users).length : 0,
+        matchdays: backupData.matchdays ? Object.keys(backupData.matchdays).length : 0,
+        predictions: backupData.predictions ? Object.keys(backupData.predictions).length : 0
+      };
+      setPreviewSummary(summary);
+      setConfirmedRestore(false);
+    } catch (err: any) {
+      setPreviewSummary(null);
+      setMessage({ text: `El archivo no es un backup JSON válido: ${err.message}`, type: "error" });
+    }
+  };
+
   const handleImport = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!fileToImport) return;
-
-    if (!confirm("⚠️ ¡ADVERTENCIA CRÍTICA!\n\nRestaurar una copia de seguridad sobrescribirá TODOS los datos actuales de la base de datos (usuarios, jornadas y predicciones).\n\n¿Estás completamente seguro de continuar?")) {
+    if (!fileToImport || !previewSummary) return;
+    if (!confirmedRestore) {
+      setMessage({ text: "Primero marca la casilla de confirmación para autorizar la restauración.", type: "error" });
       return;
     }
 
     setLoading(true);
-    setMessage({ text: "Restaurando base de datos. Por favor, no cierres esta ventana...", type: "info" });
+    setMessage({ text: "Restaurando base de datos. No cierres esta ventana...", type: "info" });
 
     try {
       const text = await fileToImport.text();
       const backupData = JSON.parse(text);
 
+      const allOps: { ref: any; data: any }[] = [];
+
+      for (const col of COLLECTIONS) {
+        const colData = backupData[col];
+        if (colData) {
+          for (const [id, data] of Object.entries<any>(colData)) {
+            allOps.push({ ref: doc(db, col, id), data });
+          }
+        }
+      }
+
+      if (allOps.length > 500) {
+        throw new Error("Backup demasiado grande para un solo batch (>500 ops).");
+      }
+
       const batch = writeBatch(db);
-      let opCount = 0;
-
-      // Import users
-      if (backupData.users) {
-        for (const [id, data] of Object.entries(backupData.users)) {
-          const ref = doc(db, "users", id);
-          batch.set(ref, data);
-          opCount++;
-        }
-      }
-
-      // Import matchdays
-      if (backupData.matchdays) {
-        for (const [id, data] of Object.entries(backupData.matchdays)) {
-          const ref = doc(db, "matchdays", id);
-          batch.set(ref, data);
-          opCount++;
-        }
-      }
-
-      // Firestore limits batch sizes to 500 operations. 
-      // Si la BD crece mucho, habría que dividirlo en varios batches, pero para esta app pequeña está bien así.
-      if (opCount > 500) {
-        throw new Error("El archivo de backup es demasiado grande para un solo lote (>500 operaciones). Contacta con el desarrollador.");
-      }
+      allOps.forEach(op => batch.set(op.ref, op.data));
 
       await batch.commit();
       
-      setMessage({ text: "Base de datos restaurada correctamente.", type: "success" });
+      setMessage({ text: "Base de datos restaurada correctamente. Recarga la app.", type: "success" });
       setFileToImport(null);
+      setPreviewSummary(null);
+      setConfirmedRestore(false);
     } catch (err: any) {
       console.error(err);
       setMessage({ text: `Error al restaurar: ${err.message}`, type: "error" });
@@ -129,19 +155,19 @@ export default function BackupAdminPage() {
           </div>
           <h2 className="text-xl font-semibold mb-2">Exportar Datos</h2>
           <p className="text-slate-400 text-sm mb-6">
-            Descarga un archivo JSON con toda la base de datos (incluyendo las imágenes de los escudos). Mantenlo en un lugar seguro.
+            Descarga un archivo JSON con <strong className="text-slate-200">TODAS</strong> las colecciones (usuarios, jornadas y predicciones) incluyendo los escudos.
           </p>
           <button
             onClick={handleExport}
             disabled={loading}
             className="mt-auto w-full rounded-lg bg-indigo-600 px-4 py-3 font-semibold text-white transition-colors hover:bg-indigo-500 disabled:opacity-50"
           >
-            Descargar Backup Completo
+            {loading ? "Generando..." : "Descargar Backup Completo"}
           </button>
         </div>
 
         {/* Importar */}
-        <div className="bg-slate-800 rounded-xl p-8 border border-slate-700 shadow-xl flex flex-col items-center text-center border-t-4 border-t-red-500">
+        <div className="bg-slate-800 rounded-xl p-8 border border-slate-700 shadow-xl flex flex-col items-center border-t-4 border-t-red-500">
           <div className="w-16 h-16 bg-red-500/20 rounded-full flex items-center justify-center mb-4">
             <svg className="w-8 h-8 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
@@ -149,22 +175,71 @@ export default function BackupAdminPage() {
           </div>
           <h2 className="text-xl font-semibold mb-2">Restaurar Datos</h2>
           <p className="text-slate-400 text-sm mb-6">
-            Sube un archivo JSON de respaldo para sobrescribir toda la base de datos. <strong className="text-red-400">Esta acción no se puede deshacer.</strong>
+            Sube un JSON de respaldo. Se muestra un resumen antes de sobrescribir la BD.
           </p>
           <form onSubmit={handleImport} className="w-full mt-auto flex flex-col gap-4">
-            <input 
-              type="file" 
-              accept=".json"
-              required
-              onChange={e => setFileToImport(e.target.files?.[0] || null)}
-              className="block w-full text-sm text-slate-400 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-slate-700 file:text-indigo-400 hover:file:bg-slate-600"
-            />
+            <div>
+              <input 
+                type="file" 
+                accept=".json"
+                required
+                onChange={e => {
+                  const f = e.target.files?.[0] || null;
+                  setFileToImport(f);
+                  setPreviewSummary(null);
+                  setConfirmedRestore(false);
+                }}
+                className="block w-full text-sm text-slate-400 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-slate-700 file:text-indigo-400 hover:file:bg-slate-600"
+              />
+            </div>
+
+            {fileToImport && !previewSummary && (
+              <button
+                type="button"
+                onClick={handlePreview}
+                className="w-full rounded-lg bg-slate-700 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-slate-600"
+              >
+                Analizar y mostrar resumen
+              </button>
+            )}
+
+            {previewSummary && (
+              <div className="bg-slate-900/70 border border-slate-700 rounded-lg p-4 space-y-2 text-sm">
+                <p className="text-xs uppercase tracking-wider font-bold text-slate-400 border-b border-slate-700 pb-1 mb-2">
+                  Resumen del archivo
+                </p>
+                <div className="flex justify-between items-center">
+                  <span className="text-slate-400">Usuarios</span>
+                  <span className="font-bold text-white">{previewSummary.users}</span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-slate-400">Jornadas</span>
+                  <span className="font-bold text-white">{previewSummary.matchdays}</span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-slate-400">Predicciones</span>
+                  <span className="font-bold text-white">{previewSummary.predictions}</span>
+                </div>
+                <label className="flex items-start gap-3 mt-4 pt-3 border-t border-slate-700 cursor-pointer text-xs">
+                  <input
+                    type="checkbox"
+                    checked={confirmedRestore}
+                    onChange={e => setConfirmedRestore(e.target.checked)}
+                    className="mt-0.5 w-4 h-4 rounded border-slate-600 text-red-600 focus:ring-red-500 bg-slate-800"
+                  />
+                  <span className="text-slate-300">
+                    <strong className="text-red-400">⚠️ Confirmo</strong> que este backup sobrescribirá <em>TODOS</em> los datos actuales y que tengo una copia actual por si acaso.
+                  </span>
+                </label>
+              </div>
+            )}
+
             <button
               type="submit"
-              disabled={loading || !fileToImport}
-              className="w-full rounded-lg bg-red-600 px-4 py-3 font-semibold text-white transition-colors hover:bg-red-500 disabled:opacity-50"
+              disabled={loading || !fileToImport || !previewSummary || !confirmedRestore}
+              className="w-full rounded-lg bg-red-600 px-4 py-3 font-semibold text-white transition-colors hover:bg-red-500 disabled:opacity-40 disabled:cursor-not-allowed"
             >
-              Restaurar Base de Datos
+              {loading ? "Restaurando..." : "Restaurar Base de Datos"}
             </button>
           </form>
         </div>
