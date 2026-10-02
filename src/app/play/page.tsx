@@ -5,6 +5,7 @@ import { collection, getDocs, doc, setDoc, query, orderBy, getDoc } from "fireba
 import { db } from "@/lib/firebase";
 import { useAuth, UserProfile } from "@/context/AuthContext";
 import { Matchday, Match } from "@/app/admin/matchdays/page";
+import { Team } from "@/app/admin/teams/page";
 import Link from "next/link";
 
 interface Prediction {
@@ -23,6 +24,7 @@ interface UserPredictionWithProfile extends Prediction {
 export default function PlayPage() {
   const { user, profile, loading } = useAuth();
   const [matchdays, setMatchdays] = useState<Matchday[]>([]);
+  const [teamsMap, setTeamsMap] = useState<Record<string, { name: string; shield?: string }>>({});
   const [myPredictions, setMyPredictions] = useState<Record<string, Prediction>>({});
   const [otherPredictions, setOtherPredictions] = useState<Record<string, UserPredictionWithProfile[]>>({});
   const [savingId, setSavingId] = useState<string | null>(null);
@@ -40,14 +42,23 @@ export default function PlayPage() {
   const loadData = async () => {
     setFetching(true);
     try {
-      // 1. Fetch matchdays
+      // 1. Fetch teams
+      const tSnap = await getDocs(query(collection(db, "teams"), orderBy("name", "asc")));
+      const tMap: Record<string, { name: string; shield?: string }> = {};
+      tSnap.forEach(d => {
+        const raw = d.data() as any;
+        if (raw?.name) tMap[raw.name.toLowerCase()] = { name: raw.name, shield: raw.shield };
+      });
+      setTeamsMap(tMap);
+
+      // 2. Fetch matchdays
       const q = query(collection(db, "matchdays"), orderBy("createdAt", "desc"));
       const mdSnap = await getDocs(q);
       const mds: Matchday[] = [];
       mdSnap.forEach(d => mds.push({ id: d.id, ...d.data() } as Matchday));
       setMatchdays(mds);
 
-      // 2. Fetch my predictions
+      // 3. Fetch predictions
       if (user) {
         const pSnap = await getDocs(collection(db, "predictions"));
         const myPreds: Record<string, Prediction> = {};
@@ -59,10 +70,8 @@ export default function PlayPage() {
           if (pred.userId === user.uid) {
             myPreds[pred.matchId] = pred;
           } else {
-            // It's another user's prediction
             if (!others[pred.matchId]) others[pred.matchId] = [];
             
-            // Get profile if not cached
             if (!profilesCache[pred.userId]) {
               const profDoc = await getDoc(doc(db, "users", pred.userId));
               if (profDoc.exists()) {
@@ -76,7 +85,7 @@ export default function PlayPage() {
         setMyPredictions(myPreds);
         setOtherPredictions(others);
 
-        // Populate inputs with my predictions
+        // Populate inputs
         const newInputs: Record<string, any> = {};
         mds.forEach(md => {
           md.matches.forEach(m => {
@@ -131,6 +140,8 @@ export default function PlayPage() {
     }));
   };
 
+  const getTeamInfo = (name: string) => teamsMap[name.toLowerCase()] || { name };
+
   if (loading || fetching) {
     return (
       <div className="flex h-screen items-center justify-center bg-slate-900">
@@ -143,7 +154,10 @@ export default function PlayPage() {
     return (
       <div className="flex h-screen flex-col items-center justify-center bg-slate-900 p-6 text-center">
         <h2 className="text-2xl font-bold text-white mb-4">Debes iniciar sesión para jugar</h2>
-        <Link href="/login" className="rounded-lg bg-indigo-600 px-6 py-3 font-semibold text-white">Ir a Login</Link>
+        <div className="flex gap-3">
+          <Link href="/" className="rounded-lg bg-slate-700 hover:bg-slate-600 px-6 py-3 font-semibold text-white transition-colors">← Inicio</Link>
+          <Link href="/login" className="rounded-lg bg-indigo-600 px-6 py-3 font-semibold text-white">Ir a Login</Link>
+        </div>
       </div>
     );
   }
@@ -151,9 +165,33 @@ export default function PlayPage() {
   return (
     <div className="min-h-screen bg-slate-900 text-slate-100 p-4 md:p-8">
       <div className="max-w-5xl mx-auto">
-        <div className="flex justify-between items-center mb-8">
-          <h1 className="text-3xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-cyan-400">Jornadas Activas</h1>
-          <Link href="/profile" className="text-sm bg-slate-800 hover:bg-slate-700 px-4 py-2 rounded-lg transition-colors border border-slate-700">Mi Perfil</Link>
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-8">
+          <div>
+            <h1 className="text-3xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-cyan-400">Jornadas Activas</h1>
+            <p className="text-sm text-slate-400 mt-1">
+              Hola, <strong className="text-slate-200">{profile.playerName}</strong>. Rellena tus predicciones antes de que empiece cada partido.
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <Link 
+              href="/" 
+              className="text-sm bg-slate-800 hover:bg-slate-700 px-4 py-2 rounded-lg transition-colors border border-slate-700"
+            >
+              ← Inicio
+            </Link>
+            <Link 
+              href="/leaderboard" 
+              className="text-sm bg-emerald-600/90 hover:bg-emerald-500 px-4 py-2 rounded-lg transition-colors shadow-md"
+            >
+              🏆 Clasificación
+            </Link>
+            <Link 
+              href="/profile" 
+              className="text-sm bg-slate-800 hover:bg-slate-700 px-4 py-2 rounded-lg transition-colors border border-slate-700"
+            >
+              Mi Perfil
+            </Link>
+          </div>
         </div>
 
         {matchdays.length === 0 ? (
@@ -182,11 +220,36 @@ export default function PlayPage() {
                         )}
                         
                         <div className="text-center mb-4 mt-2">
-                          <p className="text-xs text-slate-400 mb-1">{new Date(m.kickoffTime).toLocaleString()}</p>
-                          <div className="flex items-center justify-center gap-3 font-bold text-lg">
-                            <span className="flex-1 text-right">{m.homeTeam}</span>
-                            <span className="text-slate-500">vs</span>
-                            <span className="flex-1 text-left">{m.awayTeam}</span>
+                          <p className="text-xs text-slate-400 mb-3">{new Date(m.kickoffTime).toLocaleString()}</p>
+                          <div className="flex items-center justify-center gap-3 md:gap-5 font-bold text-base md:text-lg">
+                            <div className="flex-1 flex flex-col items-center justify-center gap-1">
+                              {getTeamInfo(m.homeTeam).shield ? (
+                                <img src={getTeamInfo(m.homeTeam).shield} alt={m.homeTeam} className="w-14 h-14 md:w-16 md:h-16 rounded-full object-cover border-2 border-slate-600 shadow-md" />
+                              ) : (
+                                <div className="w-14 h-14 md:w-16 md:h-16 rounded-full bg-slate-700/60 border border-slate-600 flex items-center justify-center text-[10px] md:text-xs text-slate-400 leading-tight text-center">
+                                  Sin escudo
+                                </div>
+                              )}
+                              <span className="truncate max-w-[120px]">{m.homeTeam}</span>
+                            </div>
+                            <div className="flex flex-col items-center pb-5 gap-1 text-slate-500">
+                              <span className="text-xl font-bold text-slate-400">vs</span>
+                              {m.status === "finished" && (
+                                <div className="bg-slate-900 rounded-md px-2 py-0.5 text-xs font-extrabold text-white border border-slate-700 shadow-inner">
+                                  {m.homeGoals} - {m.awayGoals}
+                                </div>
+                              )}
+                            </div>
+                            <div className="flex-1 flex flex-col items-center justify-center gap-1">
+                              {getTeamInfo(m.awayTeam).shield ? (
+                                <img src={getTeamInfo(m.awayTeam).shield} alt={m.awayTeam} className="w-14 h-14 md:w-16 md:h-16 rounded-full object-cover border-2 border-slate-600 shadow-md" />
+                              ) : (
+                                <div className="w-14 h-14 md:w-16 md:h-16 rounded-full bg-slate-700/60 border border-slate-600 flex items-center justify-center text-[10px] md:text-xs text-slate-400 leading-tight text-center">
+                                  Sin escudo
+                                </div>
+                              )}
+                              <span className="truncate max-w-[120px]">{m.awayTeam}</span>
+                            </div>
                           </div>
                         </div>
 

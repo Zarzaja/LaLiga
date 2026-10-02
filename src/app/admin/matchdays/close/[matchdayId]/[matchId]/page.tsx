@@ -53,6 +53,7 @@ export default function EditMatchPage({ params }: { params: Promise<{ matchdayId
 
   const [uniqueMvpVotes, setUniqueMvpVotes] = useState<string[]>([]);
   const [selectedValidMvps, setSelectedValidMvps] = useState<Record<string, boolean>>({});
+  const [customMvpInput, setCustomMvpInput] = useState("");
   const [saving, setSaving] = useState(false);
   const [recalcMessage, setRecalcMessage] = useState<string>("");
 
@@ -354,30 +355,108 @@ export default function EditMatchPage({ params }: { params: Promise<{ matchdayId
               </div>
 
               <div className="pt-6 border-t border-slate-700">
-                <h3 className="text-lg font-semibold mb-4 text-white">3. MVP del Partido</h3>
+                <h3 className="text-lg font-semibold mb-4 text-white">3. MVP del Partido (+1 punto extra)</h3>
                 <div className="mb-6">
-                  <label className="block text-sm text-slate-400 mb-2">Nombre oficial del MVP</label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="Ej. Lamine Yamal"
-                    value={officialMvp}
-                    onChange={e => setOfficialMvp(e.target.value)}
-                    className="w-full rounded-lg bg-slate-900 border border-slate-600 px-4 py-3 text-white focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-                  />
+                  <label className="block text-sm text-slate-400 mb-2">Nombre oficial del MVP (requerido)</label>
+                  <div className="flex flex-col sm:flex-row gap-2">
+                    <input
+                      type="text"
+                      required
+                      placeholder="Ej. Lamine Yamal"
+                      value={officialMvp}
+                      onChange={e => setOfficialMvp(e.target.value)}
+                      className="flex-1 rounded-lg bg-slate-900 border border-slate-600 px-4 py-3 text-white focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                    />
+                    <button
+                      type="button"
+                      disabled={!officialMvp.trim()}
+                      onClick={() => {
+                        const name = officialMvp.trim();
+                        if (!name) return;
+                        setUniqueMvpVotes(prev => prev.includes(name) ? prev : [...prev, name]);
+                        setSelectedValidMvps(prev => ({ ...prev, [name]: true }));
+                      }}
+                      className="rounded-lg bg-indigo-600/80 hover:bg-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed px-4 py-3 text-sm font-bold text-white whitespace-nowrap transition-colors"
+                    >
+                      ✅ Validar este como MVP
+                    </button>
+                  </div>
+                  <p className="text-[11px] text-slate-500 mt-2">
+                    💡 <strong>Pulsa "Validar este como MVP"</strong> para añadir automáticamente el nombre oficial a la lista de respuestas válidas (así aunque nadie lo escriba exactamente igual, o no haya apuestas todavía, el cálculo de puntos funcionará).
+                  </p>
                 </div>
 
                 <div className="bg-slate-900/50 rounded-lg p-4 border border-slate-700">
-                  <p className="text-sm font-medium text-slate-300 mb-3">Validar respuestas de los usuarios</p>
-                  <p className="text-xs text-slate-400 mb-4">
-                    Marca variaciones válidas del MVP. Las predichas se suman +1 punto.
-                  </p>
+                  <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-3 mb-3">
+                    <div>
+                      <p className="text-sm font-medium text-slate-300">Variaciones válidas del MVP (marcadas con ✓ suman +1 punto)</p>
+                      <p className="text-xs text-slate-500">
+                        Lista de todos los nombres que han escrito los usuarios, más los que añadas manualmente.
+                      </p>
+                    </div>
+                    <div className="flex gap-2 items-center">
+                      <input
+                        type="text"
+                        placeholder="Añadir variación manual..."
+                        value={customMvpInput}
+                        onChange={e => setCustomMvpInput(e.target.value)}
+                        onKeyDown={e => {
+                          if (e.key === "Enter") {
+                            e.preventDefault();
+                            const name = customMvpInput.trim();
+                            if (!name) return;
+                            setUniqueMvpVotes(prev => prev.includes(name) ? prev : [...prev, name]);
+                            setSelectedValidMvps(prev => ({ ...prev, [name]: true }));
+                            setCustomMvpInput("");
+                          }
+                        }}
+                        className="flex-1 sm:w-56 rounded-md bg-slate-900 border border-slate-600 px-3 py-1.5 text-xs text-white focus:border-indigo-500 focus:outline-none"
+                      />
+                      <button
+                        type="button"
+                        disabled={!customMvpInput.trim()}
+                        onClick={() => {
+                          const name = customMvpInput.trim();
+                          if (!name) return;
+                          setUniqueMvpVotes(prev => prev.includes(name) ? prev : [...prev, name]);
+                          setSelectedValidMvps(prev => ({ ...prev, [name]: true }));
+                          setCustomMvpInput("");
+                        }}
+                        className="rounded-md bg-slate-700 hover:bg-slate-600 disabled:opacity-40 disabled:cursor-not-allowed px-3 py-1.5 text-xs font-bold text-slate-200 whitespace-nowrap"
+                      >
+                        ➕ Añadir
+                      </button>
+                    </div>
+                  </div>
+
+                  {Object.keys(selectedValidMvps).length > 0 && (
+                    <div className="mb-3 flex flex-wrap gap-2">
+                      {Object.keys(selectedValidMvps).filter(k => selectedValidMvps[k]).map(v => (
+                        <span
+                          key={`valid-${v}`}
+                          className="inline-flex items-center gap-2 bg-emerald-500/15 text-emerald-300 text-xs font-bold rounded-full px-3 py-1 border border-emerald-500/30"
+                        >
+                          ✓ {v}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+
                   {uniqueMvpVotes.length === 0 ? (
-                    <p className="text-sm text-slate-500 italic">Nadie apostó MVP en este partido.</p>
+                    <p className="text-sm text-slate-500 italic bg-slate-950/60 border border-dashed border-slate-700 rounded p-3">
+                      Aún no hay votos de MVP de usuarios. Usa <strong>"Validar este como MVP"</strong> arriba o añade variaciones manuales con el botón <strong>➕ Añadir</strong>.
+                    </p>
                   ) : (
-                    <div className="space-y-2 max-h-56 overflow-y-auto pr-2">
+                    <div className="space-y-2 max-h-64 overflow-y-auto pr-2">
                       {uniqueMvpVotes.map(vote => (
-                        <label key={vote} className="flex items-center gap-3 p-2 hover:bg-slate-800 rounded cursor-pointer transition-colors">
+                        <label
+                          key={vote}
+                          className={`flex items-center gap-3 p-2.5 rounded cursor-pointer transition-colors border ${
+                            selectedValidMvps[vote]
+                              ? "bg-emerald-500/10 border-emerald-500/30"
+                              : "hover:bg-slate-800 border-transparent"
+                          }`}
+                        >
                           <input
                             type="checkbox"
                             className="w-5 h-5 rounded border-slate-600 text-indigo-600 focus:ring-indigo-500 bg-slate-900"
@@ -385,6 +464,11 @@ export default function EditMatchPage({ params }: { params: Promise<{ matchdayId
                             onChange={() => handleToggleValidMvp(vote)}
                           />
                           <span className="text-sm text-slate-200">{vote}</span>
+                          {selectedValidMvps[vote] && (
+                            <span className="ml-auto text-[10px] uppercase tracking-widest text-emerald-400 font-bold">
+                              válido +1pt
+                            </span>
+                          )}
                         </label>
                       ))}
                     </div>
