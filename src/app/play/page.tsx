@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { collection, getDocs, doc, setDoc, query, orderBy, getDoc } from "firebase/firestore";
+import { collection, getDocs, doc, setDoc, deleteDoc, query, orderBy, getDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { useAuth, UserProfile } from "@/context/AuthContext";
 import { Matchday, Match } from "@/app/admin/matchdays/page";
@@ -15,6 +15,10 @@ interface Prediction {
   homeGoals: number;
   awayGoals: number;
   mvpVote: string;
+  pointsExact?: number;
+  pointsSign?: number;
+  pointsMvp?: number;
+  pointsTotal?: number;
 }
 
 interface UserPredictionWithProfile extends Prediction {
@@ -30,7 +34,7 @@ export default function PlayPage() {
   const [savingId, setSavingId] = useState<string | null>(null);
   const [fetching, setFetching] = useState(true);
 
-  // States for inputs: { matchId: { homeGoals, awayGoals, mvpVote } }
+  // States for inputs: { "matchdayId_matchId": { homeGoals, awayGoals, mvpVote } }
   const [inputs, setInputs] = useState<Record<string, { homeGoals: string, awayGoals: string, mvpVote: string }>>({});
 
   useEffect(() => {
@@ -67,10 +71,31 @@ export default function PlayPage() {
 
         for (const d of pSnap.docs) {
           const pred = d.data() as Prediction;
+          if (!pred.matchId) continue;
+
+          // Resolve matchdayId if missing in legacy records
+          let mdId = pred.matchdayId;
+          if (!mdId) {
+            const foundMd = mds.find(md => md.matches?.some(m => m.id === pred.matchId));
+            if (foundMd) mdId = foundMd.id;
+          }
+          if (!mdId) continue;
+
+          const compositeKey = `${mdId}_${pred.matchId}`;
+
+          // Auto-migrate legacy doc ID (userId_matchId) to new composite format (userId_matchdayId_matchId)
+          const expectedDocId = `${pred.userId}_${mdId}_${pred.matchId}`;
+          if (d.id !== expectedDocId && d.id === `${pred.userId}_${pred.matchId}`) {
+            const migratedPred = { ...pred, matchdayId: mdId };
+            setDoc(doc(db, "predictions", expectedDocId), migratedPred, { merge: true })
+              .then(() => deleteDoc(doc(db, "predictions", d.id)))
+              .catch(err => console.warn("Auto-migration notice:", err));
+          }
+
           if (pred.userId === user.uid) {
-            myPreds[pred.matchId] = pred;
+            myPreds[compositeKey] = pred;
           } else {
-            if (!others[pred.matchId]) others[pred.matchId] = [];
+            if (!others[compositeKey]) others[compositeKey] = [];
             
             if (!profilesCache[pred.userId]) {
               const profDoc = await getDoc(doc(db, "users", pred.userId));
@@ -78,19 +103,20 @@ export default function PlayPage() {
                 profilesCache[pred.userId] = profDoc.data() as UserProfile;
               }
             }
-            others[pred.matchId].push({ ...pred, userProfile: profilesCache[pred.userId] });
+            others[compositeKey].push({ ...pred, userProfile: profilesCache[pred.userId] });
           }
         }
         
         setMyPredictions(myPreds);
         setOtherPredictions(others);
 
-        // Populate inputs
+        // Populate inputs keyed by matchdayId_matchId
         const newInputs: Record<string, any> = {};
         mds.forEach(md => {
           md.matches.forEach(m => {
-            const p = myPreds[m.id];
-            newInputs[m.id] = {
+            const key = `${md.id}_${m.id}`;
+            const p = myPreds[key];
+            newInputs[key] = {
               homeGoals: p ? p.homeGoals.toString() : "",
               awayGoals: p ? p.awayGoals.toString() : "",
               mvpVote: p ? p.mvpVote : ""
@@ -108,14 +134,16 @@ export default function PlayPage() {
 
   const handleSavePrediction = async (matchdayId: string, matchId: string) => {
     if (!user) return;
-    const inp = inputs[matchId];
-    if (inp.homeGoals === "" || inp.awayGoals === "" || !inp.mvpVote.trim()) {
+    const compositeKey = `${matchdayId}_${matchId}`;
+    const inp = inputs[compositeKey];
+    if (!inp || inp.homeGoals === "" || inp.awayGoals === "" || !inp.mvpVote.trim()) {
       alert("Por favor, rellena los goles de ambos equipos y el MVP.");
       return;
     }
 
-    setSavingId(matchId);
+    setSavingId(compositeKey);
     try {
+      const predDocId = `${user.uid}_${matchdayId}_${matchId}`;
       const pred: Prediction = {
         userId: user.uid,
         matchdayId,
@@ -124,8 +152,8 @@ export default function PlayPage() {
         awayGoals: parseInt(inp.awayGoals),
         mvpVote: inp.mvpVote.trim().toLowerCase()
       };
-      await setDoc(doc(db, "predictions", `${user.uid}_${matchId}`), pred);
-      setMyPredictions(prev => ({ ...prev, [matchId]: pred }));
+      await setDoc(doc(db, "predictions", predDocId), pred, { merge: true });
+      setMyPredictions(prev => ({ ...prev, [compositeKey]: pred }));
     } catch (err) {
       alert("Error al guardar predicción");
     } finally {
@@ -133,10 +161,10 @@ export default function PlayPage() {
     }
   };
 
-  const updateInput = (matchId: string, field: string, value: string) => {
+  const updateInput = (compositeKey: string, field: string, value: string) => {
     setInputs(prev => ({
       ...prev,
-      [matchId]: { ...prev[matchId], [field]: value }
+      [compositeKey]: { ...prev[compositeKey], [field]: value }
     }));
   };
 
@@ -206,10 +234,11 @@ export default function PlayPage() {
                 
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                   {md.matches.map((m, i) => {
+                    const matchKey = `${md.id}_${m.id}`;
                     const isPast = new Date() >= new Date(m.kickoffTime);
-                    const inp = inputs[m.id] || { homeGoals: "", awayGoals: "", mvpVote: "" };
-                    const hasPredicted = !!myPredictions[m.id];
-                    const others = otherPredictions[m.id] || [];
+                    const inp = inputs[matchKey] || { homeGoals: "", awayGoals: "", mvpVote: "" };
+                    const hasPredicted = !!myPredictions[matchKey];
+                    const others = otherPredictions[matchKey] || [];
 
                     return (
                       <div key={m.id} className={`rounded-xl p-5 border ${isPast ? 'bg-slate-800/80 border-slate-700' : 'bg-indigo-900/20 border-indigo-500/30'} flex flex-col relative overflow-hidden`}>
@@ -259,30 +288,30 @@ export default function PlayPage() {
                             <input
                               type="number"
                               min="0"
-                              disabled={isPast || savingId === m.id}
+                              disabled={isPast || savingId === matchKey}
                               className="w-16 text-center rounded-md bg-slate-800 border border-slate-600 p-2 text-xl font-bold text-white focus:border-indigo-500 focus:outline-none disabled:opacity-50"
                               value={inp.homeGoals}
-                              onChange={e => updateInput(m.id, "homeGoals", e.target.value)}
+                              onChange={e => updateInput(matchKey, "homeGoals", e.target.value)}
                             />
                             <span className="text-2xl text-slate-500 font-light">-</span>
                             <input
                               type="number"
                               min="0"
-                              disabled={isPast || savingId === m.id}
+                              disabled={isPast || savingId === matchKey}
                               className="w-16 text-center rounded-md bg-slate-800 border border-slate-600 p-2 text-xl font-bold text-white focus:border-indigo-500 focus:outline-none disabled:opacity-50"
                               value={inp.awayGoals}
-                              onChange={e => updateInput(m.id, "awayGoals", e.target.value)}
+                              onChange={e => updateInput(matchKey, "awayGoals", e.target.value)}
                             />
                           </div>
                           <div>
                             <label className="block text-xs text-slate-400 mb-1 text-center">MVP del Partido</label>
                             <input
                               type="text"
-                              disabled={isPast || savingId === m.id}
+                              disabled={isPast || savingId === matchKey}
                               placeholder="Ej. Lamine Yamal"
                               className="w-full text-center rounded-md bg-slate-800 border border-slate-600 px-3 py-2 text-sm text-white focus:border-indigo-500 focus:outline-none disabled:opacity-50"
                               value={inp.mvpVote}
-                              onChange={e => updateInput(m.id, "mvpVote", e.target.value)}
+                              onChange={e => updateInput(matchKey, "mvpVote", e.target.value)}
                             />
                           </div>
                         </div>
@@ -290,14 +319,14 @@ export default function PlayPage() {
                         {!isPast && (
                           <button
                             onClick={() => handleSavePrediction(md.id, m.id)}
-                            disabled={savingId === m.id}
+                            disabled={savingId === matchKey}
                             className={`w-full py-2.5 rounded-lg font-semibold text-sm transition-colors ${
                               hasPredicted 
                                 ? "bg-slate-700 text-white hover:bg-slate-600 border border-slate-600" 
                                 : "bg-indigo-600 text-white hover:bg-indigo-500 shadow-lg shadow-indigo-500/20"
                             } disabled:opacity-50`}
                           >
-                            {savingId === m.id ? "Guardando..." : hasPredicted ? "Actualizar Predicción" : "Guardar Predicción"}
+                            {savingId === matchKey ? "Guardando..." : hasPredicted ? "Actualizar Predicción" : "Guardar Predicción"}
                           </button>
                         )}
 

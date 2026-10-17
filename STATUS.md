@@ -7,35 +7,34 @@
 
 ## ESQUEMA FIRESTORE (8 líneas)
 - users/{uid}: teamName(único), playerName, teamShield(DataURL), isAdmin:bool
-- teams/{id}: name, shield?(DataURL). Seed LaLiga 26/27 (Deportivo Coruña sustituye Valladolid + 19 más)
-- matchdays/{id}: name ("Jornada 1"), createdAt, matches:Match[3] embebidos
-  - Match: id, homeTeam, awayTeam, kickoffTime, status(pending|finished), homeGoals, awayGoals, officialMvp, validMvpVotes:string[]
-- predictions/{uid_matchId}: userId, matchdayId, matchId, homeGoals, awayGoals, mvpVote, pointsExact, pointsSign, pointsMvp, pointsTotal
+- teams/{id}: name, shield?(DataURL). Seed LaLiga 26/27 (20 equipos)
+- matchdays/{id}: name ("Jornada 1"), createdAt, matches:Match[3]
+  - Match: id(único `${matchdayId}_m${idx}`), homeTeam, awayTeam, kickoffTime, status, homeGoals, awayGoals, officialMvp, validMvpVotes:string[]
+- predictions/{uid_matchdayId_matchId}: userId, matchdayId, matchId, homeGoals, awayGoals, mvpVote, pointsExact, pointsSign, pointsMvp, pointsTotal
 - Admin = NEXT_PUBLIC_ADMIN_EMAIL o primer usuario.
 
 ## CHECKLIST FASES
 [x] Fase 1: Init + Reglas multi-IDE (AGENTS, .cursorrules, GEMINI, STATUS)
 [x] Fase 2: Auth (login/register/recuperar) + Perfil + escudo WebP
-[x] Fase 3: Admin (Jornadas/Usuarios/Equipos/Backup predictions+resumen)
+[x] Fase 3: Admin (Jornadas/Usuarios/Equipos/Backup predictions+resumen+teams)
 [x] Fase 4: Predicciones + Editor Partido General. Finalizado → recálculo writeBatch pts
 [x] Fase 5: Leaderboard (pts→plenos→mvps) + tabs jornada + diseño
 [x] Mejoras POST: Equipos dinámicos LaLiga26/27 con escudos + Editor cerrados recálculo
-[x] Fix Oct1: (1) play/page nav ← Inicio / 🏆 / Perfil; (2) Admin Teams upload escudo PNG WebP; (3) Editor partido MVP: botón validar oficial + variaciones manuales
+[x] Fix Colisión Jornadas: Clave compuesta `uid_matchdayId_matchId` en predicciones, auto-migración, query por matchdayId en editor, IDs únicos de partido y backup con teams en chunks.
 
-## ÚLTIMO CAMBIO (1 línea)
-3 Fixes: botones navegación ← Inicio + Clasificación en Play; Admin Teams permite subir PNG/WebP escudo comprimido; Editor MVP arreglado con "Validar oficial" + variaciones custom aunque no haya apuestas previas.
+## ÚLTIMO CAMBIO (1-2 líneas)
+Solucionado bug colisión de jornadas: predicciones indexadas por (matchdayId, matchId), doc ID único `${uid}_${mdId}_${mId}`, auto-migración legacy, recálculo acotado por jornada y partidos con ID único.
 
-## SIGUIENTE PASO EXACTO (1 línea)
-Test real en navegador: subir escudos en admin/teams, cerrar partido usando "Validar este como MVP" (sin apuestas), verificar que el jugador que escriba MVP se le suma +1 y aparece el badge válido. Luego: opcional barra nav global sticky + logout.
+## SIGUIENTE PASO EXACTO (1-2 líneas)
+En la app: volver a guardar o cerrar los partidos de Jornada 8 y 9; los puntos y predicciones de cada jornada permanecerán 100% aislados e intactos.
 
 ## MAPA ARCHIVOS CLAVE
 - src/lib/firebase.ts, src/lib/imageCompression.ts, src/lib/teamsSeed.ts
 - src/context/AuthContext.tsx, src/components/AdminGuard.tsx
-- src/app/page.tsx · src/app/leaderboard/page.tsx · src/app/profile/page.tsx
-- src/app/play/page.tsx (escudos en tarjetas + nav inicio/clasif)
-- src/app/(auth)/login/page.tsx (recuperar password), register/page.tsx
-- src/app/admin/layout.tsx (sidebar con Equipos)
-- src/app/admin/matchdays/page.tsx (lee teams Firestore + Editar en TODOS)
+- src/app/page.tsx · src/app/leaderboard/page.tsx (deduped preds) · src/app/profile/page.tsx
+- src/app/play/page.tsx (clave compuesta `${mdId}_${mId}` + doc ID único + auto-migración)
+- src/app/(auth)/login/page.tsx, register/page.tsx
+- src/app/admin/matchdays/page.tsx (IDs únicos de partido `${matchdayId}_m${idx}`)
 - src/app/admin/teams/page.tsx (CRUD + upload escudos PNG WebP)
-- src/app/admin/users/page.tsx · backup/page.tsx (predictions + resumen)
-- src/app/admin/matchdays/close/[matchdayId]/[matchId]/page.tsx (Editor + ✅ Validar MVP oficial + variaciones custom)
+- src/app/admin/backup/page.tsx (backup/restore users, matchdays, predictions, teams con chunks)
+- src/app/admin/matchdays/close/[matchdayId]/[matchId]/page.tsx (query y recálculo filtrado por matchdayId)

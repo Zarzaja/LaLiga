@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { collection, getDocs, addDoc, doc, updateDoc, query, orderBy } from "firebase/firestore";
+import { collection, getDocs, addDoc, doc, setDoc, updateDoc, query, orderBy } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import Link from "next/link";
 import { Team } from "@/app/admin/teams/page";
@@ -80,10 +80,17 @@ export default function MatchdaysAdminPage() {
     }
 
     try {
-      await addDoc(collection(db, "matchdays"), {
+      const matchdayRef = doc(collection(db, "matchdays"));
+      const matchdayId = matchdayRef.id;
+      const matchesWithUniqueIds: Match[] = newMatches.map((m, idx) => ({
+        ...m,
+        id: `${matchdayId}_m${idx + 1}`
+      }));
+
+      await setDoc(matchdayRef, {
         name: newMatchdayName,
         createdAt: Date.now(),
-        matches: newMatches
+        matches: matchesWithUniqueIds
       });
       setNewMatchdayName("");
       setNewMatches([emptyMatch("m1"), emptyMatch("m2"), emptyMatch("m3")]);

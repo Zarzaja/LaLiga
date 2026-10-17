@@ -8,6 +8,7 @@ interface BackupSummary {
   users: number;
   matchdays: number;
   predictions: number;
+  teams: number;
 }
 
 export default function BackupAdminPage() {
@@ -17,7 +18,7 @@ export default function BackupAdminPage() {
   const [previewSummary, setPreviewSummary] = useState<BackupSummary | null>(null);
   const [confirmedRestore, setConfirmedRestore] = useState(false);
 
-  const COLLECTIONS = ["users", "matchdays", "predictions"] as const;
+  const COLLECTIONS = ["users", "matchdays", "predictions", "teams"] as const;
 
   const handleExport = async () => {
     setLoading(true);
@@ -28,7 +29,8 @@ export default function BackupAdminPage() {
         version: 1,
         users: {},
         matchdays: {},
-        predictions: {}
+        predictions: {},
+        teams: {}
       };
 
       for (const col of COLLECTIONS) {
@@ -50,11 +52,11 @@ export default function BackupAdminPage() {
       
       URL.revokeObjectURL(url);
       const counts = COLLECTIONS.reduce<any>((acc, c) => {
-        acc[c] = Object.keys(backupData[c]).length;
+        acc[c] = Object.keys(backupData[c] || {}).length;
         return acc;
       }, {});
       setMessage({
-        text: `Backup descargado: ${counts.users} usuarios · ${counts.matchdays} jornadas · ${counts.predictions} predicciones.`,
+        text: `Backup descargado: ${counts.users} usuarios · ${counts.matchdays} jornadas · ${counts.predictions} predicciones · ${counts.teams} equipos.`,
         type: "success"
       });
     } catch (err: any) {
@@ -74,7 +76,8 @@ export default function BackupAdminPage() {
       const summary: BackupSummary = {
         users: backupData.users ? Object.keys(backupData.users).length : 0,
         matchdays: backupData.matchdays ? Object.keys(backupData.matchdays).length : 0,
-        predictions: backupData.predictions ? Object.keys(backupData.predictions).length : 0
+        predictions: backupData.predictions ? Object.keys(backupData.predictions).length : 0,
+        teams: backupData.teams ? Object.keys(backupData.teams).length : 0
       };
       setPreviewSummary(summary);
       setConfirmedRestore(false);
@@ -110,14 +113,14 @@ export default function BackupAdminPage() {
         }
       }
 
-      if (allOps.length > 500) {
-        throw new Error("Backup demasiado grande para un solo batch (>500 ops).");
+      // Chunk in batches of 400 to respect Firestore 500 limit
+      const CHUNK_SIZE = 400;
+      for (let i = 0; i < allOps.length; i += CHUNK_SIZE) {
+        const batch = writeBatch(db);
+        const chunk = allOps.slice(i, i + CHUNK_SIZE);
+        chunk.forEach(op => batch.set(op.ref, op.data));
+        await batch.commit();
       }
-
-      const batch = writeBatch(db);
-      allOps.forEach(op => batch.set(op.ref, op.data));
-
-      await batch.commit();
       
       setMessage({ text: "Base de datos restaurada correctamente. Recarga la app.", type: "success" });
       setFileToImport(null);
@@ -219,6 +222,10 @@ export default function BackupAdminPage() {
                 <div className="flex justify-between items-center">
                   <span className="text-slate-400">Predicciones</span>
                   <span className="font-bold text-white">{previewSummary.predictions}</span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-slate-400">Equipos</span>
+                  <span className="font-bold text-white">{previewSummary.teams}</span>
                 </div>
                 <label className="flex items-start gap-3 mt-4 pt-3 border-t border-slate-700 cursor-pointer text-xs">
                   <input

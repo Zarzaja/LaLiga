@@ -66,7 +66,7 @@ export default function EditMatchPage({ params }: { params: Promise<{ matchdayId
       const [mdDoc, tSnap, predSnap] = await Promise.all([
         getDoc(doc(db, "matchdays", matchdayId)),
         getDocs(query(collection(db, "teams"), orderBy("name", "asc"))),
-        getDocs(query(collection(db, "predictions"), where("matchId", "==", matchId)))
+        getDocs(query(collection(db, "predictions"), where("matchdayId", "==", matchdayId)))
       ]);
 
       const tList: string[] = [];
@@ -102,8 +102,10 @@ export default function EditMatchPage({ params }: { params: Promise<{ matchdayId
 
       const mvpSet = new Set<string>();
       predSnap.forEach(d => {
-        const vote = d.data().mvpVote;
-        if (vote) mvpSet.add(vote);
+        const dData = d.data();
+        if (dData.matchId === matchId && dData.mvpVote) {
+          mvpSet.add(dData.mvpVote);
+        }
       });
       setUniqueMvpVotes(Array.from(mvpSet));
 
@@ -159,9 +161,13 @@ export default function EditMatchPage({ params }: { params: Promise<{ matchdayId
         const realHome = parseInt(homeGoals);
         const realAway = parseInt(awayGoals);
 
-        const predSnap = await getDocs(query(collection(db, "predictions"), where("matchId", "==", matchId)));
+        const predSnap = await getDocs(
+          query(collection(db, "predictions"), where("matchdayId", "==", matchdayId))
+        );
         predSnap.forEach(predDoc => {
           const d = predDoc.data();
+          if (d.matchId !== matchId) return;
+
           const { exact, sign, mvp } = computeMatchPoints(
             { home: d.homeGoals ?? 0, away: d.awayGoals ?? 0 },
             { home: realHome, away: realAway },
@@ -176,6 +182,23 @@ export default function EditMatchPage({ params }: { params: Promise<{ matchdayId
             pointsTotal: total
           });
           processedCount++;
+        });
+      } else {
+        const predSnap = await getDocs(
+          query(collection(db, "predictions"), where("matchdayId", "==", matchdayId))
+        );
+        predSnap.forEach(predDoc => {
+          const d = predDoc.data();
+          if (d.matchId !== matchId) return;
+          if (d.pointsTotal !== undefined || d.pointsExact !== undefined) {
+            batch.update(predDoc.ref, {
+              pointsExact: 0,
+              pointsSign: 0,
+              pointsMvp: 0,
+              pointsTotal: 0
+            });
+            processedCount++;
+          }
         });
       }
 

@@ -78,11 +78,21 @@ export default function LeaderboardPage() {
 
   const standings = useMemo<UserStanding[]>(() => {
     const map: Record<string, UserStanding> = {};
-    const userPreds = selectedMatchdayId === "all"
+    const filteredPreds = selectedMatchdayId === "all"
       ? predictions
       : predictions.filter(p => p.matchdayId === selectedMatchdayId);
 
-    userPreds.forEach(p => {
+    // Deduplicate predictions by userId + matchdayId + matchId
+    const dedupedMap = new Map<string, PredictionWithPoints>();
+    filteredPreds.forEach(p => {
+      const key = `${p.userId}_${p.matchdayId}_${p.matchId}`;
+      const existing = dedupedMap.get(key);
+      if (!existing || (p.pointsTotal ?? 0) >= (existing.pointsTotal ?? 0)) {
+        dedupedMap.set(key, p);
+      }
+    });
+
+    dedupedMap.forEach(p => {
       const uid = p.userId;
       if (!map[uid]) {
         map[uid] = {
@@ -107,7 +117,17 @@ export default function LeaderboardPage() {
     });
 
     if (selectedMatchdayId === "all" && lastMatchdayId) {
-      predictions.filter(p => p.matchdayId === lastMatchdayId).forEach(p => {
+      const lastMdPreds = predictions.filter(p => p.matchdayId === lastMatchdayId);
+      const dedupedLastMd = new Map<string, PredictionWithPoints>();
+      lastMdPreds.forEach(p => {
+        const key = `${p.userId}_${p.matchdayId}_${p.matchId}`;
+        const existing = dedupedLastMd.get(key);
+        if (!existing || (p.pointsTotal ?? 0) >= (existing.pointsTotal ?? 0)) {
+          dedupedLastMd.set(key, p);
+        }
+      });
+
+      dedupedLastMd.forEach(p => {
         const uid = p.userId;
         if (!map[uid]) {
           map[uid] = {
