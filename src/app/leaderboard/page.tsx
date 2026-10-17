@@ -18,6 +18,11 @@ interface PredictionWithPoints {
   pointsSign?: number;
   pointsMvp?: number;
   pointsTotal?: number;
+  exactCount?: number;
+  signCount?: number;
+  mvpCount?: number;
+  note?: string;
+  isManualAdjustment?: boolean;
 }
 
 interface UserStanding {
@@ -45,24 +50,24 @@ export default function LeaderboardPage() {
   const loadAllData = async () => {
     setLoading(true);
     try {
-      const mdSnap = await getDocs(query(collection(db, "matchdays"), orderBy("createdAt", "asc")));
+      const [mdSnap, predSnap, userSnap] = await Promise.all([
+        getDocs(query(collection(db, "matchdays"), orderBy("createdAt", "asc"))),
+        getDocs(collection(db, "predictions")),
+        getDocs(collection(db, "users"))
+      ]);
+
       const mds: Matchday[] = [];
       mdSnap.forEach(d => mds.push({ id: d.id, ...d.data() } as Matchday));
       setMatchdays(mds);
 
-      const predSnap = await getDocs(collection(db, "predictions"));
       const preds: PredictionWithPoints[] = [];
       predSnap.forEach(d => preds.push(d.data() as PredictionWithPoints));
       setPredictions(preds);
 
-      const userIds = Array.from(new Set(preds.map(p => p.userId)));
       const profMap: Record<string, UserProfile> = {};
-      await Promise.all(
-        userIds.map(async uid => {
-          const snap = await getDoc(doc(db, "users", uid));
-          if (snap.exists()) profMap[uid] = snap.data() as UserProfile;
-        })
-      );
+      userSnap.forEach(d => {
+        profMap[d.id] = d.data() as UserProfile;
+      });
       setProfiles(profMap);
     } catch (err) {
       console.error(err);
@@ -108,12 +113,26 @@ export default function LeaderboardPage() {
       const exact = p.pointsExact || 0;
       const sign = p.pointsSign || 0;
       const mvp = p.pointsMvp || 0;
-      const total = p.pointsTotal || (exact + sign + mvp);
+      const total = p.pointsTotal !== undefined ? p.pointsTotal : (exact + sign + mvp);
 
       map[uid].totalPoints += total;
-      if (exact === 3) map[uid].exactCount += 1;
-      if (sign === 1) map[uid].signCount += 1;
-      if (mvp === 1) map[uid].mvpCount += 1;
+      if (p.exactCount !== undefined) {
+        map[uid].exactCount += p.exactCount;
+      } else if (exact === 3) {
+        map[uid].exactCount += 1;
+      }
+
+      if (p.signCount !== undefined) {
+        map[uid].signCount += p.signCount;
+      } else if (sign === 1) {
+        map[uid].signCount += 1;
+      }
+
+      if (p.mvpCount !== undefined) {
+        map[uid].mvpCount += p.mvpCount;
+      } else if (mvp === 1) {
+        map[uid].mvpCount += 1;
+      }
     });
 
     if (selectedMatchdayId === "all" && lastMatchdayId) {
@@ -138,10 +157,25 @@ export default function LeaderboardPage() {
         const exact = p.pointsExact || 0;
         const sign = p.pointsSign || 0;
         const mvp = p.pointsMvp || 0;
-        const total = p.pointsTotal || (exact + sign + mvp);
+        const total = p.pointsTotal !== undefined ? p.pointsTotal : (exact + sign + mvp);
         map[uid].lastMatchdayPoints += total;
       });
     }
+
+    // Ensure all registered users appear in the standings even if they have 0 predictions
+    Object.keys(profiles).forEach(uid => {
+      if (!map[uid]) {
+        map[uid] = {
+          userId: uid,
+          profile: profiles[uid],
+          totalPoints: 0,
+          exactCount: 0,
+          signCount: 0,
+          mvpCount: 0,
+          lastMatchdayPoints: 0
+        };
+      }
+    });
 
     const list = Object.values(map);
     list.sort((a, b) =>
